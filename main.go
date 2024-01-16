@@ -1,56 +1,149 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/gin-gonic/gin" // Gin Web Framework
-	
-	"gorm.io/gorm"				// GORM ORM
-  	"gorm.io/driver/sqlite"	// SQLite Driver
 
+	"log"
+
+	"gorm.io/driver/mysql" // SQLite Driver
+	"gorm.io/gorm"         // GORM ORM
 )
 
 // MVC = Model View Controller
 // User model
+// type User struct {
+// 	gorm.Model        // ID, CreatedAt, UpdatedAt, DeletedAt
+// 	Name       string // Name field
+// }
+
 type User struct {
-	gorm.Model		// ID, CreatedAt, UpdatedAt, DeletedAt
-	Name string		// Name field
+	ID       uint   `gorm:"primaryKey"`
+	Username string `gorm:"unique"`
+	Email    string
 }
 
-var db *gorm.DB		// Database
+var db *gorm.DB // Database
+
+func connectToMariaDB() (*gorm.DB, error) {
+	dsn := "root:@tcp(localhost:3306)/go_test?charset=utf8mb4&parseTime=True&loc=Local"
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+
+	return db, nil
+}
 
 func main() {
-	// err คือ ตัวแปรที่ใช้เก็บ error ที่เกิดขึ้น
-	var err error
-
-	// สร้าง database และเก็บไว้ในตัวแปร db
-	db, err := gorm.Open(sqlite.Open("./mydb.sqlite"), &gorm.Config{})
-	//db, err = gorm.Open("sqlite3", "./mydb.sqlite")
-
-	// ถ้าเกิด error ให้ panic และแสดงข้อความ "failed to connect database
+	db, err := connectToMariaDB()
 	if err != nil {
-		panic("failed to connect database")
+		log.Fatal(err)
 	}
-	// ถ้าสิ้นสุดการทำงานของฟังก์ชัน main ให้ปิดการเชื่อมต่อ database
-	//defer db.Close()
+	// defer db.Close()
 
-	// สร้าง table ใน database โดยใช้ struct User
-	db.AutoMigrate(&User{})
+	// Perform database migration
+	err = db.AutoMigrate(&User{})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// สร้าง router โดยใช้ gin.Default() ซึ่งเป็นการสร้าง router ที่มี middleware ต่างๆ อยู่แล้ว
-	r := gin.Default()
+	// Create a user
+	newUser := &User{Username: "thanachat", Email: "john.doe@example.com"}
+	err = createUser(db, newUser)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Created User:", newUser)
 
-	// สร้าง route สำหรับเรียกใช้งาน API
-	r.GET("/users", GetUsers)
-	r.POST("/users", CreateUser)
-	r.PUT("/users/:id", UpdateUser)
-	r.DELETE("/users/:id", DeleteUser)
+	// Query user by ID
+	userID := newUser.ID
+	user, err := getUserByID(db, userID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("User by ID:", user)
 
-	// print Start server
-	fmt.Println("Start server...")
+	// Update user
+	user.Email = "updated_email@example.com"
+	err = updateUser(db, user)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Updated User:", user)
 
-	// รัน server ที่ port 5000
-	r.Run(":5000")
+	// Delete user
+	err = deleteUser(db, user)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Deleted User:", user)
+}
+
+// func main() {
+// // err คือ ตัวแปรที่ใช้เก็บ error ที่เกิดขึ้น
+// var err error
+
+// // สร้าง database และเก็บไว้ในตัวแปร db
+// db, err := gorm.Open(sqlite.Open("./mydb.sqlite"), &gorm.Config{})
+// //db, err = gorm.Open("sqlite3", "./mydb.sqlite")
+
+// // ถ้าเกิด error ให้ panic และแสดงข้อความ "failed to connect database
+// if err != nil {
+// 	panic("failed to connect database")
+// }
+// // ถ้าสิ้นสุดการทำงานของฟังก์ชัน main ให้ปิดการเชื่อมต่อ database
+// //defer db.Close()
+
+// // สร้าง table ใน database โดยใช้ struct User
+// db.AutoMigrate(&User{})
+
+// // สร้าง router โดยใช้ gin.Default() ซึ่งเป็นการสร้าง router ที่มี middleware ต่างๆ อยู่แล้ว
+// r := gin.Default()
+
+// // สร้าง route สำหรับเรียกใช้งาน API
+// r.GET("/users", GetUsers)
+// r.POST("/users", CreateUser)
+// r.PUT("/users/:id", UpdateUser)
+// r.DELETE("/users/:id", DeleteUser)
+
+// // print Start server
+// fmt.Println("Start server...")
+
+// // รัน server ที่ port 5000
+// r.Run(":5000")
+// }
+
+func createUser(db *gorm.DB, user *User) error {
+	result := db.Create(user)
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
+}
+
+func getUserByID(db *gorm.DB, userID uint) (*User, error) {
+	var user User
+	result := db.First(&user, userID)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
+func deleteUser(db *gorm.DB, user *User) error {
+	result := db.Delete(user)
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
+}
+
+func updateUser(db *gorm.DB, user *User) error {
+	result := db.Save(user)
+	if result.Error != nil {
+		return result.Error
+	}
+	return nil
 }
 
 // ฟังก์ชัน GetUsers ใช้สำหรับเรียกข้อมูล user ทั้งหมด
@@ -64,7 +157,7 @@ func GetUsers(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "Error retrieving users"})
 		return
 	}
-	c.JSON(200, users)	// 200 คือ HTTP status ที่บอกว่าสำเร็จ
+	c.JSON(200, users) // 200 คือ HTTP status ที่บอกว่าสำเร็จ
 }
 
 // ฟังก์ชัน CreateUser ใช้สำหรับสร้าง user
